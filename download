@@ -1,0 +1,10 @@
+# Personal settings (contains your Plex token) - never commit
+settings.bat
+
+# Generated files
+poster_backups/
+polaroid_preview/
+fonts/
+crop_overrides.txt
+__pycache__/
+*.pyc

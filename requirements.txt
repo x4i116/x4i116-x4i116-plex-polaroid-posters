@@ -1,0 +1,4 @@
+plexapi
+pillow
+requests
+numpy
