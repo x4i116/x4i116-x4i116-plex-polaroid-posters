@@ -47,9 +47,10 @@ Then pick from the menu:
 |---|---|
 | **1. Preview 10 posters per library** | Makes 10 samples from each library (plus the seasons of those shows, and two episodes per season if episodes are on) in `polaroid_preview` and opens the folder. Nothing in Plex changes. Do this first. |
 | **2. Apply to library** | Does every movie and show. Anything already done is skipped, so run it again after adding new ones or if a run gets interrupted. |
-| **3. Redo everything** | Same as 2, but redoes finished ones too. |
+| **3. Redo everything** | Same as 2, but redoes finished ones too. A redo remembers its progress, so if it gets interrupted you can continue it instead of starting over. |
 | **4. Restore original posters** | Puts every original poster back from the backups. |
 | **5. Change settings** | Re-enter your address, token or library names. |
+| **7. Continue unfinished redo** | Only appears if a redo was interrupted. Picks up where it stopped, with the same libraries and options, even if the redo was started from the command line. |
 
 ## Good to know
 
@@ -82,7 +83,9 @@ Drop `--dry-run --limit 10` to apply it for real. Other options:
 | Option | Meaning |
 |---|---|
 | `--library "Name"` | Library to use (default: Movies). Repeat it to do several, e.g. `--library Movies --library "TV Shows"` |
-| `--force` | Redo ones that are already done |
+| `--force` | Redo ones that are already done. If a redo is interrupted, running the same command again picks up where it stopped |
+| `--continue` | Continue an unfinished redo with the libraries and options it was started with |
+| `--fresh` | With `--force`: forget an unfinished redo and start over |
 | `--restore` | Put the original posters back |
 | `--only "Title"` | Only movies/shows whose title contains this text |
 | `--episodes` | Also do every episode's thumbnail |

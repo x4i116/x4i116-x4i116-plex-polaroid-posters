@@ -71,6 +71,7 @@ echo   3  Redo everything
 echo   4  Restore original posters
 echo   5  Change settings
 echo   6  Quit
+if exist "poster_backups\_redo_progress.txt" echo   7  Continue unfinished redo
 echo.
 set "choice="
 set /p "choice=Pick a number: "
@@ -81,6 +82,7 @@ if "%choice%"=="3" goto redo
 if "%choice%"=="4" goto restore
 if "%choice%"=="5" goto settings
 if "%choice%"=="6" exit /b
+if "%choice%"=="7" if exist "poster_backups\_redo_progress.txt" goto continue
 goto menu
 
 :preview
@@ -97,10 +99,27 @@ pause
 goto menu
 
 :redo
+if exist "poster_backups\_redo_progress.txt" goto redo_unfinished
 set "sure="
 set /p "sure=This redoes EVERYTHING, even finished ones. Type Y to continue: "
 if /i not "%sure%"=="Y" goto menu
 py plex_polaroid.py %LIBS% %EPS% --force
+pause
+goto menu
+
+:redo_unfinished
+echo.
+echo There's an unfinished redo from before.
+set "sure="
+set /p "sure=Type C to continue it, N to start a new redo from scratch, or Enter to cancel: "
+if /i "%sure%"=="C" goto continue
+if /i not "%sure%"=="N" goto menu
+py plex_polaroid.py %LIBS% %EPS% --force --fresh
+pause
+goto menu
+
+:continue
+py plex_polaroid.py --continue
 pause
 goto menu
 

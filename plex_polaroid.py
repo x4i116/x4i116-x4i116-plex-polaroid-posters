@@ -15,12 +15,16 @@ See README.md for setup. Quick reference:
     python plex_polaroid.py --url URL --token TOKEN --force                redo everything
     python plex_polaroid.py --url URL --token TOKEN --restore              put originals back
 
+A --force redo remembers its progress: if it's interrupted, running it again
+(or --continue) picks up where it stopped. --fresh starts the redo over.
+
 Other options: --library NAME (repeat for several), --episodes, --no-seasons, --only "Title", --use-still, --backup-dir DIR.
 --url / --token / --library can also come from the PLEX_URL / PLEX_TOKEN /
 PLEX_LIBRARY environment variables (PLEX_LIBRARY can list several, separated by ;).
 """
 
 import argparse
+import json
 import io
 import os
 import sys
@@ -312,6 +316,61 @@ def retry(fn, what="request", tries=4):
             time.sleep(wait)
 
 
+class RedoProgress:
+    """Remembers what a --force redo has already finished, so an interrupted
+    redo picks up where it stopped instead of starting over. The first line
+    stores which libraries/options the redo was started with."""
+
+    def __init__(self, path):
+        self.path = path
+        self.settings = {}
+        self.ids = set()
+        if path.exists():
+            lines = path.read_text().splitlines()
+            if lines and lines[0].startswith("#"):
+                try:
+                    self.settings = json.loads(lines[0][1:])
+                except ValueError:
+                    pass
+                lines = lines[1:]
+            self.ids = {l.strip() for l in lines if l.strip()}
+
+    def __contains__(self, key):
+        return str(key) in self.ids
+
+    def start(self, args):
+        if not self.path.exists():
+            self.settings = {
+                "libraries": args.library,
+                "episodes": bool(args.episodes),
+                "no_seasons": bool(args.no_seasons),
+            }
+            self.path.write_text("#" + json.dumps(self.settings) + "\n")
+
+    def add(self, key):
+        if str(key) not in self.ids:
+            self.ids.add(str(key))
+            with open(self.path, "a") as f:
+                f.write(f"{key}\n")
+
+    def clear(self):
+        self.ids = set()
+        self.settings = {}
+        self.path.unlink(missing_ok=True)
+
+
+REDO = None  # set in run() during a --force redo
+
+
+def already_redone(key):
+    return REDO is not None and key in REDO
+
+
+def mark_redone(key):
+    if REDO is not None:
+        REDO.add(key)
+
+
 def process_movie(movie, i, total, args, server, backups, preview, overrides):
     name = safe_name(movie)
     labels = retry(lambda: [l.tag.lower() for l in movie.labels], "labels")
@@ -326,6 +385,8 @@ def process_movie(movie, i, total, args, server, backups, preview, overrides):
         return "ignored"
 
     if LABEL in labels and not args.force:
+        return "skipped"
+    if already_redone(movie.ratingKey):
         return "skipped"
 
     print(f"[{i}/{total}] {movie.title} ({movie.year})")
@@ -398,6 +459,7 @@ def process_movie(movie, i, total, args, server, backups, preview, overrides):
         if LABEL not in labels:
             retry(lambda: movie.addLabel(LABEL), "label")
         tmp.unlink(missing_ok=True)
+        mark_redone(movie.ratingKey)
         time.sleep(0.5)  # give Plex a breather
     return "done"
 
@@ -447,6 +509,8 @@ def process_season(show, season, args, server, backups, preview):
         return "ignored"
 
     if LABEL in labels and not args.force:
+        return "skipped"
+    if already_redone(season.ratingKey):
         return "skipped"
 
     print(f"      {label_name}")
@@ -499,6 +563,7 @@ def process_season(show, season, args, server, backups, preview):
         if LABEL not in labels:
             set_season_label(season, backups, True)
         tmp.unlink(missing_ok=True)
+        mark_redone(season.ratingKey)
         time.sleep(0.5)
     return "done"
 
@@ -598,6 +663,8 @@ def process_episode(show, ep, args, server, backups, preview, done_eps):
 
     if ep.ratingKey in done_eps and not args.force:
         return "skipped"
+    if already_redone(ep.ratingKey):
+        return "skipped"
 
     if not backup.exists():
         if not ep.thumb:
@@ -628,6 +695,7 @@ def process_episode(show, ep, args, server, backups, preview, done_eps):
         retry(ep.lockPoster, "lock")
         done_eps.add(ep.ratingKey)
         tmp.unlink(missing_ok=True)
+        mark_redone(ep.ratingKey)
         time.sleep(0.3)
     return "done"
 
@@ -661,6 +729,29 @@ def run(args):
 
     overrides = load_overrides(here / "crop_overrides.txt")
     done_eps = DoneList(backups / "_done_episodes.txt")
+
+    # Resumable redo
+    global REDO
+    progress = RedoProgress(backups / "_redo_progress.txt")
+    if args.continue_redo:
+        if not progress.path.exists():
+            sys.exit("There's no unfinished redo to continue.")
+        st = progress.settings
+        args.library = st.get("libraries") or args.library
+        args.episodes = st.get("episodes", args.episodes)
+        args.no_seasons = st.get("no_seasons", args.no_seasons)
+        args.force = True
+        args.dry_run = args.restore = False
+    if args.force and not args.dry_run and not args.restore:
+        if args.fresh:
+            progress.clear()
+        if progress.ids:
+            print(
+                f"Continuing an unfinished redo: {len(progress.ids)} already redone, "
+                "skipping those. (Use --fresh to start the redo over.)"
+            )
+        progress.start(args)
+        REDO = progress
 
     done = skipped = failed = 0
     in_a_row = 0
@@ -725,9 +816,7 @@ def run(args):
                     if ep_skipped and not ep_done and not args.restore:
                         print(f"      all {ep_skipped} episodes already done")
             except KeyboardInterrupt:
-                print(
-                    "\nStopped. Run the same command again (without --force) to pick up where it left off."
-                )
+                print("\nStopped.")
                 stopped = True
                 break
             except Exception as e:
@@ -738,6 +827,18 @@ def run(args):
                     print("   Plex seems busy - pausing 2 minutes before continuing...")
                     time.sleep(120)
                     in_a_row = 0
+
+    if stopped and REDO is None:
+        print("Run the same command again to pick up where it left off.")
+    if REDO is not None:
+        if not stopped and failed == 0:
+            REDO.clear()
+            print("\nRedo finished.")
+        else:
+            print(
+                "\nRedo not finished yet. Run the same command again, or pick 'Continue "
+                "unfinished redo' in run.bat, to pick up where it stopped."
+            )
 
     verb = "restored" if args.restore else ("previewed" if args.dry_run else "updated")
     print(f"\nDone. {done} {verb}, {skipped} skipped, {failed} failed.")
@@ -776,6 +877,17 @@ def main():
         "--use-still",
         action="store_true",
         help="Use a cropped film still instead of the whole poster",
+    )
+    p.add_argument(
+        "--continue",
+        dest="continue_redo",
+        action="store_true",
+        help="Continue an unfinished --force redo with the same libraries/options",
+    )
+    p.add_argument(
+        "--fresh",
+        action="store_true",
+        help="With --force: ignore an unfinished redo and start the redo over",
     )
     p.add_argument("--backup-dir", default="poster_backups")
     args = p.parse_args()
