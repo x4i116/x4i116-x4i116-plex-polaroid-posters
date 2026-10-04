@@ -9,7 +9,11 @@ Gives every movie and TV show in your Plex library a matching minimalist "polaro
 
 ![Example posters](example.jpg)
 
-*Example output (made-up movies, for illustration).*
+*Example posters (made-up movies, for illustration).*
+
+![Example episode thumbnails](example-episodes.jpg)
+
+*Example episode thumbnails, the optional wide layout for episodes (made-up shows).*
 
 All the info comes from Plex automatically. Your original posters are backed up first, and you can put them back at any time.
 
