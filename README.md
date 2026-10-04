@@ -46,17 +46,19 @@ Then pick from the menu:
 | Option | What it does |
 |---|---|
 | **1. Preview 10 posters per library** | Makes 10 samples from each library (plus the seasons of those shows, and two episodes per season if episodes are on) in `polaroid_preview` and opens the folder. Nothing in Plex changes. Do this first. |
-| **2. Apply to library** | Does every movie and show. Anything already done is skipped, so run it again after adding new ones or if a run gets interrupted. |
+| **2. Apply to library** | Does every movie and show. Anything already done is skipped, so run it again after adding new ones or if a run gets interrupted. Show and season posters whose season or episode counts have changed are refreshed automatically. |
 | **3. Redo everything** | Same as 2, but redoes finished ones too. A redo remembers its progress, so if it gets interrupted you can continue it instead of starting over. |
 | **4. Restore original posters** | Puts every original poster back from the backups. |
 | **5. Change settings** | Re-enter your address, token or library names. |
 | **7. Continue unfinished redo** | Only appears if a redo was interrupted. Picks up where it stopped, with the same libraries and options, even if the redo was started from the command line. |
+| **8. Nightly automatic run** | Sets up a Windows scheduled task that runs option 2 every night at a time you pick, so anything new you add to Plex gets its poster without you doing anything. Choose 8 again to change the time, turn it off, or open the log of the last run (`last_scheduled_run.log`). The PC needs to be on; if it was off or asleep, it runs as soon as it can. |
 
 ## Good to know
 
 - Original posters are saved in `poster_backups`. Keep this folder if you might ever want to restore them.
 - Finished movies, shows and seasons get a Plex label called `polaroid`, which is how the tool knows what's done. Option 4 removes it. (On older Plex servers that can't label seasons, finished seasons are tracked in `poster_backups` instead.) Finished episodes are always tracked in `poster_backups`, which is much faster for big libraries.
 - New posters are locked so Plex doesn't swap them back on its own.
+- When you add new seasons or episodes to a show, option 2 makes posters for the new ones and also refreshes that show's poster (and the season's) so the counts stay correct. The counts each poster was made with are remembered in `poster_backups`.
 - `settings.bat` holds your token. It's excluded from git by `.gitignore`, but don't share it.
 - The fonts (Oswald and Crimson Text, both under the SIL Open Font License) download automatically from Google Fonts on first run.
 
