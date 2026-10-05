@@ -71,6 +71,7 @@ Then pick from the menu:
 | `Access is denied` / `PermissionError` | Move the folder to `C:\PlexPolaroidPosters`. |
 | Can't find a library | The tool lists your actual library names. Use option 5 and type one exactly as shown. |
 | Timeouts / "Plex didn't answer" | Plex is busy. The tool waits and retries on its own. Run option 2 again at the end to pick up any that failed. |
+| Some items say "failed" | The run ends with a list of what failed and why, also saved to `failed_items.log` in the folder. Items Plex has no usable artwork for (missing files, broken thumbnails) are skipped instead of failing. |
 | Can't connect at all | Check the address. If Plex is on another computer, use its IP instead of `localhost`. |
 
 ## Mac / Linux / command line

@@ -18,6 +18,9 @@ See README.md for setup. Quick reference:
 A --force redo remembers its progress: if it's interrupted, running it again
 (or --continue) picks up where it stopped. --fresh starts the redo over.
 
+Normal runs also refresh any show or season poster whose season/episode
+count has changed since it was made.
+
 Other options: --library NAME (repeat for several), --episodes, --no-seasons, --only "Title", --use-still, --backup-dir DIR.
 --url / --token / --library can also come from the PLEX_URL / PLEX_TOKEN /
 PLEX_LIBRARY environment variables (PLEX_LIBRARY can list several, separated by ;).
@@ -282,10 +285,25 @@ def make_poster(
 # --------------------------------------------------------------------------
 # Plex
 # --------------------------------------------------------------------------
+class NoArtwork(Exception):
+    """Plex has no usable image for this item (missing file, broken thumbnail)."""
+
+
 def fetch_image(server, path):
-    r = requests.get(server.url(path, includeToken=True), timeout=120)
-    r.raise_for_status()
-    return Image.open(io.BytesIO(r.content))
+    for attempt in range(3):
+        r = requests.get(server.url(path, includeToken=True), timeout=120)
+        if r.status_code >= 500 and attempt < 2:  # Plex hiccup - try again
+            time.sleep(5)
+            continue
+        break
+    if r.status_code >= 400:
+        raise NoArtwork(f"Plex returned error {r.status_code} for the image")
+    try:
+        img = Image.open(io.BytesIO(r.content))
+        img.load()
+        return img
+    except Exception:
+        raise NoArtwork("Plex sent something that isn't a readable image")
 
 
 def load_overrides(path):
@@ -371,6 +389,43 @@ def mark_redone(key):
         REDO.add(key)
 
 
+class CountMemory:
+    """Remembers the season/episode counts each show and season poster was
+    made with, so a normal run can refresh posters whose numbers went stale
+    after new seasons or episodes were added."""
+
+    def __init__(self, path):
+        self.path = path
+        try:
+            self.data = json.loads(path.read_text()) if path.exists() else {}
+        except ValueError:
+            self.data = {}
+
+    def get(self, key):
+        return self.data.get(str(key))
+
+    def set(self, key, sig):
+        if self.data.get(str(key)) != sig:
+            self.data[str(key)] = sig
+            self.path.write_text(json.dumps(self.data))
+
+
+COUNTS = None  # set in run()
+
+
+def counts_changed(key, sig):
+    """True if this poster was made with different counts. The first time an
+    item is seen (e.g. right after updating the tool) its current counts are
+    simply recorded."""
+    if COUNTS is None:
+        return False
+    old = COUNTS.get(key)
+    if old is None:
+        COUNTS.set(key, sig)
+        return False
+    return old != sig
+
+
 def process_movie(movie, i, total, args, server, backups, preview, overrides):
     name = safe_name(movie)
     labels = retry(lambda: [l.tag.lower() for l in movie.labels], "labels")
@@ -384,19 +439,27 @@ def process_movie(movie, i, total, args, server, backups, preview, overrides):
             return "done"
         return "ignored"
 
+    show_sig = [movie.childCount, movie.leafCount] if movie.type == "show" else None
+    note = ""
     if LABEL in labels and not args.force:
-        return "skipped"
+        if not (show_sig and counts_changed(movie.ratingKey, show_sig)):
+            return "skipped"
+        note = "  - new seasons/episodes, refreshing"
     if already_redone(movie.ratingKey):
         return "skipped"
 
-    print(f"[{i}/{total}] {movie.title} ({movie.year})")
+    print(f"[{i}/{total}] {movie.title} ({movie.year}){note}")
     retry(movie.reload, "movie details")  # full cast / crew lists
 
     # Back up the current poster (only the first time)
     backup = backups / f"{name}.jpg"
     if movie.thumb and not backup.exists():
-        img = retry(lambda: fetch_image(server, movie.thumb), "poster download")
-        img.convert("RGB").save(backup, quality=95)
+        try:
+            img = retry(lambda: fetch_image(server, movie.thumb), "poster download")
+            img.convert("RGB").save(backup, quality=95)
+        except NoArtwork as e:
+            print(f"   no usable poster in Plex ({e}), skipping")
+            return "skipped"
 
     # Per-movie override: a number (crop position) or "poster"
     ov = overrides.get(movie.title.lower()) or overrides.get(
@@ -412,7 +475,13 @@ def process_movie(movie, i, total, args, server, backups, preview, overrides):
     # Default: the whole original poster. --use-still: cropped background art
     whole = not (args.use_still and movie.art and ov != "poster")
     if not whole:
-        still = retry(lambda: fetch_image(server, movie.art), "still download")
+        try:
+            still = retry(lambda: fetch_image(server, movie.art), "still download")
+        except NoArtwork:
+            if not backup.exists():
+                print("   no usable artwork in Plex, skipping")
+                return "skipped"
+            still, whole = Image.open(backup), True
     elif backup.exists():
         still = Image.open(backup)
     else:
@@ -460,6 +529,8 @@ def process_movie(movie, i, total, args, server, backups, preview, overrides):
             retry(lambda: movie.addLabel(LABEL), "label")
         tmp.unlink(missing_ok=True)
         mark_redone(movie.ratingKey)
+        if show_sig and COUNTS is not None:
+            COUNTS.set(movie.ratingKey, show_sig)
         time.sleep(0.5)  # give Plex a breather
     return "done"
 
@@ -508,17 +579,24 @@ def process_season(show, season, args, server, backups, preview):
             return "done"
         return "ignored"
 
+    season_sig = [season.leafCount]
+    note = ""
     if LABEL in labels and not args.force:
-        return "skipped"
+        if not counts_changed(season.ratingKey, season_sig):
+            return "skipped"
+        note = "  - new episodes, refreshing"
     if already_redone(season.ratingKey):
         return "skipped"
 
-    print(f"      {label_name}")
+    print(f"      {label_name}{note}")
 
     # Back up the season's own poster. Seasons without one borrow the show's.
     if season.thumb and not backup.exists():
-        img = retry(lambda: fetch_image(server, season.thumb), "poster download")
-        img.convert("RGB").save(backup, quality=95)
+        try:
+            img = retry(lambda: fetch_image(server, season.thumb), "poster download")
+            img.convert("RGB").save(backup, quality=95)
+        except NoArtwork:
+            pass  # use the show's poster instead
     show_backup = backups / f"{safe_name(show)}.jpg"
     source = backup if backup.exists() else show_backup
     if not source.exists():
@@ -564,6 +642,8 @@ def process_season(show, season, args, server, backups, preview):
             set_season_label(season, backups, True)
         tmp.unlink(missing_ok=True)
         mark_redone(season.ratingKey)
+        if COUNTS is not None:
+            COUNTS.set(season.ratingKey, season_sig)
         time.sleep(0.5)
     return "done"
 
@@ -670,8 +750,12 @@ def process_episode(show, ep, args, server, backups, preview, done_eps):
         if not ep.thumb:
             print(f"      {tag}: no thumbnail in Plex, skipping")
             return "skipped"
-        img = retry(lambda: fetch_image(server, ep.thumb), "thumbnail download")
-        img.convert("RGB").save(backup, quality=95)
+        try:
+            img = retry(lambda: fetch_image(server, ep.thumb), "thumbnail download")
+            img.convert("RGB").save(backup, quality=95)
+        except NoArtwork as e:
+            print(f"      {tag}: no usable thumbnail in Plex ({e}), skipping")
+            return "skipped"
 
     print(f"      {tag} {ep.title}")
     aired = getattr(ep, "originallyAvailableAt", None)
@@ -729,6 +813,8 @@ def run(args):
 
     overrides = load_overrides(here / "crop_overrides.txt")
     done_eps = DoneList(backups / "_done_episodes.txt")
+    global COUNTS
+    COUNTS = None if args.dry_run or args.restore else CountMemory(backups / "_poster_counts.json")
 
     # Resumable redo
     global REDO
@@ -756,6 +842,7 @@ def run(args):
     done = skipped = failed = 0
     in_a_row = 0
     stopped = False
+    failures = []
     for lib_name in args.library:
         if stopped:
             break
@@ -788,7 +875,16 @@ def run(args):
                 # Seasons get their own posters (even if the show itself was already done)
                 if movie.type == "show" and not args.no_seasons:
                     for season in retry(movie.seasons, "seasons"):
-                        r = process_season(movie, season, args, server, backups, preview)
+                        try:
+                            r = process_season(movie, season, args, server, backups, preview)
+                        except KeyboardInterrupt:
+                            raise
+                        except Exception as e:
+                            what = f"{movie.title} - season {season.index}"
+                            print(f"      season {season.index}: failed: {e}")
+                            failures.append((what, str(e)))
+                            failed += 1
+                            continue
                         if r == "done":
                             done += 1
                         elif r == "skipped":
@@ -806,7 +902,16 @@ def run(args):
                         eps = eps_kept
                     ep_done = ep_skipped = 0
                     for ep in eps:
-                        r = process_episode(movie, ep, args, server, backups, preview, done_eps)
+                        try:
+                            r = process_episode(movie, ep, args, server, backups, preview, done_eps)
+                        except KeyboardInterrupt:
+                            raise
+                        except Exception as e:
+                            what = f"{movie.title} - S{ep.parentIndex}E{ep.index} {ep.title}"
+                            print(f"      S{ep.parentIndex}E{ep.index}: failed: {e}")
+                            failures.append((what, str(e)))
+                            failed += 1
+                            continue
                         if r == "done":
                             done += 1
                             ep_done += 1
@@ -814,13 +919,14 @@ def run(args):
                             skipped += 1
                             ep_skipped += 1
                     if ep_skipped and not ep_done and not args.restore:
-                        print(f"      all {ep_skipped} episodes already done")
+                        print("      episodes: nothing new to do")
             except KeyboardInterrupt:
                 print("\nStopped.")
                 stopped = True
                 break
             except Exception as e:
-                print(f"[{i}/{len(movies)}] {movie.title}: failed after retries: {e}")
+                print(f"[{i}/{len(movies)}] {movie.title}: failed: {e}")
+                failures.append((movie.title, str(e)))
                 failed += 1
                 in_a_row += 1
                 if in_a_row >= 3:
@@ -842,6 +948,15 @@ def run(args):
 
     verb = "restored" if args.restore else ("previewed" if args.dry_run else "updated")
     print(f"\nDone. {done} {verb}, {skipped} skipped, {failed} failed.")
+    log = here / "failed_items.log"
+    if failures:
+        print("\nThese failed:")
+        for what, why in failures:
+            print(f"   {what}: {why}")
+        log.write_text("".join(f"{what}: {why}\n" for what, why in failures), encoding="utf-8")
+        print(f"(Also saved to {log.name})")
+    elif log.exists() and not args.dry_run:
+        log.unlink()
     if args.dry_run:
         print(f"Previews are in ./{preview}")
 
