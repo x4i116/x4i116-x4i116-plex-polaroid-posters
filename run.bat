@@ -70,7 +70,7 @@ echo   4  Restore original posters
 echo   5  Change settings
 echo   6  Quit
 if exist "poster_backups\_redo_progress.txt" echo   7  Continue unfinished redo
-echo   8  Nightly automatic run  [currently %SCHED%]
+echo   8  Daily automatic run  [currently %SCHED%]
 echo.
 set "choice="
 set /p "choice=Pick a number: "
@@ -138,21 +138,21 @@ goto start
 :schedule
 if /i "%SCHED%"=="on" goto schedule_manage
 echo.
-echo This runs option 2 automatically every night, so anything new you add
+echo This runs option 2 automatically every day, so anything new you add
 echo to Plex gets its poster without you doing anything. Your PC needs to be
 echo on (if it was off or asleep at that time, it runs as soon as it can).
 goto schedule_time
 
 :schedule_manage
 echo.
-echo The nightly automatic run is ON.
+echo The daily automatic run is ON.
 set "sure="
 set /p "sure=Type T to change the time, R to remove it, L to see the last run's log, or Enter to go back: "
 if /i "%sure%"=="T" goto schedule_time
 if /i "%sure%"=="L" goto schedule_log
 if /i not "%sure%"=="R" goto menu
 schtasks /Delete /TN "%TASKNAME%" /F >nul
-echo Nightly automatic run removed.
+echo Daily automatic run removed.
 pause
 goto menu
 
@@ -162,7 +162,7 @@ goto menu
 
 :schedule_time
 set "RUNAT=03:00"
-set /p "RUNAT=What time each night? 24-hour, like 03:00 or 23:30 [press Enter for 03:00]: "
+set /p "RUNAT=What time should it run? 24-hour, like 03:00 or 23:30 [press Enter for 03:00]: "
 schtasks /Create /TN "%TASKNAME%" /TR "\"%~dp0run.bat\" auto" /SC DAILY /ST %RUNAT% /F >nul
 if errorlevel 1 (
   echo Couldn't set that up - make sure the time looks like 03:00.
@@ -172,7 +172,7 @@ if errorlevel 1 (
 rem Run as soon as possible if the PC was off/asleep, and don't stop on battery
 powershell -NoProfile -Command "$t = Get-ScheduledTask -TaskName '%TASKNAME%'; $t.Settings.StartWhenAvailable = $true; $t.Settings.DisallowStartIfOnBatteries = $false; $t.Settings.StopIfGoingOnBatteries = $false; Set-ScheduledTask -InputObject $t | Out-Null" >nul 2>&1
 echo.
-echo Done - it will run every night at %RUNAT%.
+echo Done - it will run every day at %RUNAT%.
 echo Each run's output is saved to last_scheduled_run.log in this folder.
 pause
 goto menu

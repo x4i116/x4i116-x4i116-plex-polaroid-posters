@@ -51,7 +51,7 @@ Then pick from the menu:
 | **4. Restore original posters** | Puts every original poster back from the backups. |
 | **5. Change settings** | Re-enter your address, token or library names. |
 | **7. Continue unfinished redo** | Only appears if a redo was interrupted. Picks up where it stopped, with the same libraries and options, even if the redo was started from the command line. |
-| **8. Nightly automatic run** | Sets up a Windows scheduled task that runs option 2 every night at a time you pick, so anything new you add to Plex gets its poster without you doing anything. Choose 8 again to change the time, turn it off, or open the log of the last run (`last_scheduled_run.log`). The PC needs to be on; if it was off or asleep, it runs as soon as it can. |
+| **8. Daily automatic run** | Sets up a Windows scheduled task that runs option 2 every day at a time you pick, so anything new you add to Plex gets its poster without you doing anything. Choose 8 again to change the time, turn it off, or open the log of the last run (`last_scheduled_run.log`). The PC needs to be on; if it was off or asleep, it runs as soon as it can. |
 
 ## Good to know
 
