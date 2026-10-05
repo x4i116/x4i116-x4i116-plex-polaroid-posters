@@ -962,6 +962,11 @@ def run(args):
 
 
 def main():
+    if "--print-pythonw" in sys.argv:
+        # Used by run.bat: the windowless pythonw.exe next to this Python
+        w = Path(sys.executable).with_name("pythonw.exe")
+        print(w if w.exists() else "")
+        return
     p = argparse.ArgumentParser(
         description="Minimalist polaroid posters for Plex movies and TV shows"
     )
@@ -1004,8 +1009,15 @@ def main():
         action="store_true",
         help="With --force: ignore an unfinished redo and start the redo over",
     )
+    p.add_argument(
+        "--scheduled",
+        action="store_true",
+        help="Unattended run using settings.bat; output goes to last_scheduled_run.log",
+    )
     p.add_argument("--backup-dir", default="poster_backups")
     args = p.parse_args()
+    if args.scheduled:
+        return run_scheduled(args)
     if not args.library:
         env = os.getenv("PLEX_LIBRARY", "Movies")
         args.library = [x.strip() for x in env.split(";") if x.strip()]
@@ -1013,6 +1025,52 @@ def main():
     if not args.url or not args.token:
         sys.exit("Need --url and --token (or PLEX_URL / PLEX_TOKEN env vars).")
     run(args)
+
+
+def run_scheduled(args):
+    """Unattended daily run (used by the Windows scheduled task, started with
+    pyw so no window opens). Reads settings.bat, does a normal "apply" run,
+    and writes everything to last_scheduled_run.log."""
+    import datetime
+    import re
+    import traceback
+
+    here = Path(__file__).resolve().parent
+    # Line-buffered so the log fills in while the run is still going
+    log = open(here / "last_scheduled_run.log", "w", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stderr = log
+    print(f"===== Scheduled run {datetime.datetime.now():%Y-%m-%d %H:%M} =====")
+    try:
+        settings = {}
+        sfile = here / "settings.bat"
+        if not sfile.exists():
+            print("No settings.bat - run run.bat normally once first.")
+            return
+        for line in sfile.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r'\s*set\s+"([A-Z_]+)=(.*)"\s*$', line, re.I)
+            if m:
+                settings[m.group(1).upper()] = m.group(2)
+        args.url = settings.get("PLEX_URL")
+        args.token = settings.get("PLEX_TOKEN")
+        libs = [settings.get("PLEX_LIBRARY") or "Movies"]
+        tv = settings.get("PLEX_TV_LIBRARY", "")
+        if tv and tv.lower() != "none":
+            libs.append(tv)
+        args.library = libs
+        args.episodes = settings.get("PLEX_EPISODES", "").lower() == "yes"
+        args.force = args.dry_run = args.restore = args.continue_redo = False
+        if not args.url or not args.token:
+            print("settings.bat is missing the server address or token.")
+            return
+        run(args)
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            print(e.code)
+    except Exception:
+        traceback.print_exc()
+    finally:
+        print(f"===== Finished {datetime.datetime.now():%Y-%m-%d %H:%M} =====")
+        log.close()
 
 
 if __name__ == "__main__":

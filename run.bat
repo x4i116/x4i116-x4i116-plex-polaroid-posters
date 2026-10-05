@@ -147,7 +147,7 @@ goto schedule_time
 echo.
 echo The daily automatic run is ON.
 set "sure="
-set /p "sure=Type T to change the time, R to remove it, L to see the last run's log, or Enter to go back: "
+set /p "sure=Type T to change the time, R to remove it, L to show the last run's log, or Enter to go back: "
 if /i "%sure%"=="T" goto schedule_time
 if /i "%sure%"=="L" goto schedule_log
 if /i not "%sure%"=="R" goto menu
@@ -157,13 +157,38 @@ pause
 goto menu
 
 :schedule_log
-if exist last_scheduled_run.log (start "" notepad "last_scheduled_run.log") else (echo It hasn't run yet.& pause)
+echo.
+echo ----- What Windows says about the task -----
+schtasks /Query /TN "%TASKNAME%" /V /FO LIST | findstr /i /c:"Status:" /c:"Last Run Time" /c:"Last Result" /c:"Task To Run"
+echo (Last Result 0 = finished OK, 267009 = still running right now)
+echo.
+if not exist last_scheduled_run.log (
+  echo No log yet - it hasn't run.
+  pause
+  goto menu
+)
+for %%F in (last_scheduled_run.log) do if %%~zF==0 (
+  echo The log is empty - the run is probably still going, or it didn't get far.
+  pause
+  goto menu
+)
+echo ----- last_scheduled_run.log -----
+type "last_scheduled_run.log"
+echo ----------------------------------
+pause
 goto menu
 
 :schedule_time
 set "RUNAT=03:00"
 set /p "RUNAT=What time should it run? 24-hour, like 03:00 or 23:30 [press Enter for 03:00]: "
-schtasks /Create /TN "%TASKNAME%" /TR "\"%~dp0run.bat\" auto" /SC DAILY /ST %RUNAT% /F >nul
+rem Use pythonw.exe (Python without a console) so nothing pops up; fall back to run.bat if missing
+set "PYW="
+for /f "usebackq delims=" %%P in (`py "%~dp0plex_polaroid.py" --print-pythonw 2^>nul`) do if not defined PYW set "PYW=%%P"
+if defined PYW (
+  schtasks /Create /TN "%TASKNAME%" /TR "\"%PYW%\" \"%~dp0plex_polaroid.py\" --scheduled" /SC DAILY /ST %RUNAT% /F >nul
+) else (
+  schtasks /Create /TN "%TASKNAME%" /TR "\"%~dp0run.bat\" auto" /SC DAILY /ST %RUNAT% /F >nul
+)
 if errorlevel 1 (
   echo Couldn't set that up - make sure the time looks like 03:00.
   pause
@@ -173,6 +198,7 @@ rem Run as soon as possible if the PC was off/asleep, and don't stop on battery
 powershell -NoProfile -Command "$t = Get-ScheduledTask -TaskName '%TASKNAME%'; $t.Settings.StartWhenAvailable = $true; $t.Settings.DisallowStartIfOnBatteries = $false; $t.Settings.StopIfGoingOnBatteries = $false; Set-ScheduledTask -InputObject $t | Out-Null" >nul 2>&1
 echo.
 echo Done - it will run every day at %RUNAT%.
+if defined PYW (echo It runs in the background, no window will open.) else (echo A command window will briefly open when it runs.)
 echo Each run's output is saved to last_scheduled_run.log in this folder.
 pause
 goto menu
