@@ -11,3 +11,6 @@ __pycache__/
 
 # Scheduled run log
 *.log
+
+# cw_check.py output
+cw_check/

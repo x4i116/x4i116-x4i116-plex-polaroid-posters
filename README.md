@@ -51,7 +51,7 @@ Then pick from the menu:
 | **4. Restore original posters** | Puts every original poster back from the backups. |
 | **5. Change settings** | Re-enter your address, token or library names. |
 | **7. Continue unfinished redo** | Only appears if a redo was interrupted. Picks up where it stopped, with the same libraries and options, even if the redo was started from the command line. |
-| **8. Daily automatic run** | Sets up a Windows scheduled task that runs option 2 every day at a time you pick, so anything new you add to Plex gets its poster without you doing anything. Choose 8 again to change the time, turn it off, or open the log of the last run (`last_scheduled_run.log`). The PC needs to be on; if it was off or asleep, it runs as soon as it can. |
+| **8. Daily automatic run** | Sets up a Windows scheduled task that runs option 2 every day at a time you pick, so anything new you add to Plex gets its poster without you doing anything. Choose 8 again to change the time, turn it off, or open the log of the last run (`last_scheduled_run.log`). It runs quietly in the background without opening a window. The PC needs to be on; if it was off or asleep, it runs as soon as it can. |
 
 ## Good to know
 
@@ -72,6 +72,7 @@ Then pick from the menu:
 | Can't find a library | The tool lists your actual library names. Use option 5 and type one exactly as shown. |
 | Timeouts / "Plex didn't answer" | Plex is busy. The tool waits and retries on its own. Run option 2 again at the end to pick up any that failed. |
 | Some items say "failed" | The run ends with a list of what failed and why, also saved to `failed_items.log` in the folder. Items Plex has no usable artwork for (missing files, broken thumbnails) are skipped instead of failing. |
+| Continue Watching still shows an old poster | The Plex app on your PC keeps its own saved copies of images on disk, and restarting doesn't clear them. Run `py cw_check.py` (see below) to confirm your server is serving the polaroid, then clear the app's cache as described below. |
 | Can't connect at all | Check the address. If Plex is on another computer, use its IP instead of `localhost`. |
 
 ## Mac / Linux / command line
@@ -89,8 +90,32 @@ Drop `--dry-run --limit 10` to apply it for real. Other options:
 | `--force` | Redo ones that are already done. If a redo is interrupted, running the same command again picks up where it stopped |
 | `--continue` | Continue an unfinished redo with the libraries and options it was started with |
 | `--fresh` | With `--force`: forget an unfinished redo and start over |
+| `--scheduled` | Unattended run using the saved settings, with output written to `last_scheduled_run.log` (this is what the daily task runs) |
 | `--restore` | Put the original posters back |
 | `--only "Title"` | Only movies/shows whose title contains this text |
 | `--episodes` | Also do every episode's thumbnail |
 | `--no-seasons` | Only do the main show posters, not each season |
 | `--use-still` | Use a cropped scene from the movie instead of the poster (experimental; can cut off people) |
+
+## Continue Watching shows an old poster
+
+Plex picks which image appears in Continue Watching (the show, season or episode image, depending on the app), but whichever it picks comes from your library, so it shows the polaroid once that image is converted. If one item still shows the original poster:
+
+**1. Check what your server is serving.** Open a command window in this folder and run:
+
+```
+py cw_check.py
+```
+
+It saves every image Plex could use for each Continue Watching item into a `cw_check` folder: the show poster, the season poster and the episode image, both as stored ("direct") and as the smaller copy the server makes for apps ("resized").
+
+- **Everything in the folder is a polaroid:** your server is fine and the old image is cached in the Plex app on your PC. Go to step 2.
+- **The resized copy is old but the direct one is a polaroid:** the server's own image cache is stale. Quit Plex Media Server, delete everything inside `%LOCALAPPDATA%\Plex Media Server\Cache\PhotoTranscoder`, and start it again.
+- **The image itself is old:** that item hasn't been converted. Redo it with `--force --only "Show Name"`.
+
+**2. Clear the Plex app's cache (Windows desktop app).** Restarting the app or the server does not clear it.
+
+1. Quit the Plex app completely, including from the system tray.
+2. Press Win + R, enter `%LOCALAPPDATA%`, and open the **Plex** folder (or **Plex HTPC**). Don't touch **Plex Media Server**.
+3. Open its **Cache** folder and delete **QtWebEngine** and **qmlcache**. Leave the version-number folders and **updates** alone.
+4. Reopen Plex. It starts a bit slower and you may need to sign in again, then it downloads every image fresh.
