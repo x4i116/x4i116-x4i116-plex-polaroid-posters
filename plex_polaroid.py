@@ -426,6 +426,14 @@ def counts_changed(key, sig):
     return old != sig
 
 
+def looks_like_polaroid(img):
+    """True if an image already has this tool's off-white frame (so it isn't
+    a fresh original poster)."""
+    im = img.convert("RGB").resize((100, 150))
+    spots = [(2, 2), (97, 2), (2, 147), (97, 147), (50, 146)]
+    return all(sum(abs(a - b) for a, b in zip(im.getpixel(xy), BG)) < 45 for xy in spots)
+
+
 def process_movie(movie, i, total, args, server, backups, preview, overrides):
     name = safe_name(movie)
     labels = retry(lambda: [l.tag.lower() for l in movie.labels], "labels")
@@ -453,6 +461,24 @@ def process_movie(movie, i, total, args, server, backups, preview, overrides):
 
     # Back up the current poster (only the first time)
     backup = backups / f"{name}.jpg"
+    if args.new_poster:
+        # The user picked a different poster in Plex: make it the new original
+        if not movie.thumb:
+            print("   Plex has no poster for this - pick one in Plex first.")
+            return "skipped"
+        try:
+            current = retry(lambda: fetch_image(server, movie.thumb), "poster download")
+        except NoArtwork as e:
+            print(f"   couldn't download the poster from Plex ({e})")
+            return "skipped"
+        if looks_like_polaroid(current):
+            print(
+                "   Plex is still showing the polaroid version. Pick the new poster in Plex\n"
+                "   first (Edit > Poster), then run this again. Nothing was changed."
+            )
+            return "skipped"
+        current.convert("RGB").save(backup, quality=95)
+        print("   saved your new poster as the original")
     if movie.thumb and not backup.exists():
         try:
             img = retry(lambda: fetch_image(server, movie.thumb), "poster download")
@@ -828,7 +854,8 @@ def run(args):
         args.no_seasons = st.get("no_seasons", args.no_seasons)
         args.force = True
         args.dry_run = args.restore = False
-    if args.force and not args.dry_run and not args.restore:
+    # A one-title redo (--only) finishes quickly, so it doesn't need resume tracking
+    if args.force and not args.dry_run and not args.restore and not args.only:
         if args.fresh:
             progress.clear()
         if progress.ids:
@@ -840,6 +867,7 @@ def run(args):
         REDO = progress
 
     done = skipped = failed = 0
+    matched = 0
     in_a_row = 0
     stopped = False
     failures = []
@@ -859,6 +887,18 @@ def run(args):
         movies = retry(lib.all, "library list")
         if args.only:
             movies = [m for m in movies if args.only.lower() in m.title.lower()]
+            if args.new_poster:
+                exact = [m for m in movies if m.title.lower() == args.only.lower()]
+                if exact:
+                    movies = exact
+                elif len(movies) > 1:
+                    print(f"More than one title contains '{args.only}':")
+                    for m in movies:
+                        print(f"   {m.title} ({m.year})")
+                    print("Run it again with the full title.")
+                    matched += len(movies)
+                    continue
+            matched += len(movies)
         if args.limit:
             movies = movies[: args.limit]
 
@@ -946,6 +986,9 @@ def run(args):
                 "unfinished redo' in run.bat, to pick up where it stopped."
             )
 
+    if args.only and matched == 0 and not stopped:
+        print(f"\nNothing in your libraries has a title containing '{args.only}'.")
+
     verb = "restored" if args.restore else ("previewed" if args.dry_run else "updated")
     print(f"\nDone. {done} {verb}, {skipped} skipped, {failed} failed.")
     log = here / "failed_items.log"
@@ -984,6 +1027,12 @@ def main():
     p.add_argument("--restore", action="store_true", help="Put original posters back")
     p.add_argument("--only", help="Only movies whose title contains this text")
     p.add_argument(
+        "--new-poster",
+        action="store_true",
+        help="After picking a new poster in Plex: use it as the original and remake "
+        'the polaroid. Use with --only "Title".',
+    )
+    p.add_argument(
         "--episodes",
         action="store_true",
         help="Also give every episode a wide polaroid thumbnail (slow on big libraries)",
@@ -1016,6 +1065,12 @@ def main():
     )
     p.add_argument("--backup-dir", default="poster_backups")
     args = p.parse_args()
+    if args.new_poster:
+        if not args.only:
+            sys.exit('--new-poster needs --only "Title" so it only changes one title.')
+        args.force = True
+        args.episodes = False  # episode cards use their own screenshots
+        args.dry_run = args.restore = False
     if args.scheduled:
         return run_scheduled(args)
     if not args.library:

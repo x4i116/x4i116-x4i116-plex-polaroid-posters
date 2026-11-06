@@ -71,6 +71,7 @@ echo   5  Change settings
 echo   6  Quit
 if exist "poster_backups\_redo_progress.txt" echo   7  Continue unfinished redo
 echo   8  Daily automatic run  [currently %SCHED%]
+echo   9  Use a new poster for one movie or show
 echo.
 set "choice="
 set /p "choice=Pick a number: "
@@ -83,6 +84,7 @@ if "%choice%"=="5" goto settings
 if "%choice%"=="6" exit /b
 if "%choice%"=="7" if exist "poster_backups\_redo_progress.txt" goto continue
 if "%choice%"=="8" goto schedule
+if "%choice%"=="9" goto newposter
 goto menu
 
 :preview
@@ -134,6 +136,19 @@ goto menu
 :settings
 if exist settings.bat del settings.bat
 goto start
+
+:newposter
+echo.
+echo Use this after changing a poster in Plex (Edit ^> Poster). It makes the
+echo poster you picked the new original and remakes the polaroid from it.
+echo For a show, its season posters are remade too.
+echo.
+set "TITLE="
+set /p "TITLE=Movie or show title (or press Enter to cancel): "
+if "%TITLE%"=="" goto menu
+py plex_polaroid.py %LIBS% --new-poster --only "%TITLE%"
+pause
+goto menu
 
 :schedule
 if /i "%SCHED%"=="on" goto schedule_manage

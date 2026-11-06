@@ -52,6 +52,7 @@ Then pick from the menu:
 | **5. Change settings** | Re-enter your address, token or library names. |
 | **7. Continue unfinished redo** | Only appears if a redo was interrupted. Picks up where it stopped, with the same libraries and options, even if the redo was started from the command line. |
 | **8. Daily automatic run** | Sets up a Windows scheduled task that runs option 2 every day at a time you pick, so anything new you add to Plex gets its poster without you doing anything. Choose 8 again to change the time, turn it off, or open the log of the last run (`last_scheduled_run.log`). It runs quietly in the background without opening a window. The PC needs to be on; if it was off or asleep, it runs as soon as it can. |
+| **9. Use a new poster for one movie or show** | After you pick a different poster in Plex (**Edit → Poster**), this makes your pick the new original and remakes the polaroid from it. Type the title when asked. If Plex still shows the polaroid, it stops and tells you to pick the new poster first. For a show, its season posters are remade too. |
 
 ## Good to know
 
@@ -88,6 +89,7 @@ Drop `--dry-run --limit 10` to apply it for real. Other options:
 |---|---|
 | `--library "Name"` | Library to use (default: Movies). Repeat it to do several, e.g. `--library Movies --library "TV Shows"` |
 | `--force` | Redo ones that are already done. If a redo is interrupted, running the same command again picks up where it stopped |
+| `--new-poster` | With `--only "Title"`: after picking a new poster in Plex, use it as the original and remake the polaroid |
 | `--continue` | Continue an unfinished redo with the libraries and options it was started with |
 | `--fresh` | With `--force`: forget an unfinished redo and start over |
 | `--scheduled` | Unattended run using the saved settings, with output written to `last_scheduled_run.log` (this is what the daily task runs) |
